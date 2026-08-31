@@ -1,0 +1,8 @@
+{
+  "name": "Release Drafter",
+  "description": "Draft releases and resolve SemVer from patch-bump, minor-bump, and major-bump labels using the organisation's canonical reusable workflow.",
+  "iconName": "octicon tag",
+  "categories": [
+    "Automation"
+  ]
+}
