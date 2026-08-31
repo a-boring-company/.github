@@ -28,12 +28,17 @@ jobs:
             const existing = new Set(labels.map(({ name }) => name))
             for (const [name, description] of required) {
               if (!existing.has(name)) {
-                await github.rest.issues.createLabel({
-                  ...context.repo,
-                  name,
-                  description,
-                  color: 'ededed',
-                })
+                try {
+                  await github.rest.issues.createLabel({
+                    ...context.repo,
+                    name,
+                    description,
+                    color: 'ededed',
+                  })
+                } catch (error) {
+                  if (error.status !== 422) throw error
+                  await github.rest.issues.getLabel({ ...context.repo, name })
+                }
               }
             }
 
