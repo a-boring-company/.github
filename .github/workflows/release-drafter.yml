@@ -1,0 +1,77 @@
+name: Canonical Release Drafter
+
+on:
+  workflow_call:
+
+concurrency:
+  group: release-drafter-${{ github.repository }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update-release-draft:
+    runs-on: ubuntu-slim
+    steps:
+      - name: Ensure SemVer bump labels exist
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const required = [
+              ['patch-bump', 'Release: patch version bump'],
+              ['minor-bump', 'Release: minor version bump'],
+              ['major-bump', 'Release: major version bump'],
+            ]
+            const labels = await github.paginate(github.rest.issues.listLabelsForRepo, {
+              ...context.repo,
+              per_page: 100,
+            })
+            const existing = new Set(labels.map(({ name }) => name))
+            for (const [name, description] of required) {
+              if (!existing.has(name)) {
+                await github.rest.issues.createLabel({
+                  ...context.repo,
+                  name,
+                  description,
+                  color: 'ededed',
+                })
+              }
+            }
+
+      - name: Write Release Drafter config
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.github"
+          cat > "$GITHUB_WORKSPACE/.github/release-drafter.yml" <<'YAML'
+          name-template: 'v$RESOLVED_VERSION'
+          tag-template: 'v$RESOLVED_VERSION'
+
+          categories:
+            - type: version-resolver
+              semver-increment: major
+              when:
+                label: major-bump
+            - type: version-resolver
+              semver-increment: minor
+              when:
+                label: minor-bump
+            - type: version-resolver
+              semver-increment: patch
+              when:
+                label: patch-bump
+
+          change-template: '- $TITLE (#$NUMBER) $AUTHORS'
+          change-title-escapes: '\<*_&'
+
+          template: |
+            ## What's Changed
+
+            $CHANGES
+
+            **Full changelog:** https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+          YAML
+
+      - name: Update release draft
+        uses: release-drafter/release-drafter@v7
+        with:
+          config-name: file:release-drafter.yml
+          dry-run: ${{ github.event_name == 'pull_request' }}
