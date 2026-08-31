@@ -17,28 +17,35 @@ jobs:
         with:
           script: |
             const required = [
-              ['patch-bump', 'Release: patch version bump'],
-              ['minor-bump', 'Release: minor version bump'],
-              ['major-bump', 'Release: major version bump'],
+              ['patch-bump', '2DA44E', 'Release: patch version bump'],
+              ['minor-bump', '0969DA', 'Release: minor version bump'],
+              ['major-bump', 'CF222E', 'Release: major version bump'],
             ]
             const labels = await github.paginate(github.rest.issues.listLabelsForRepo, {
               ...context.repo,
               per_page: 100,
             })
-            const existing = new Set(labels.map(({ name }) => name))
-            for (const [name, description] of required) {
-              if (!existing.has(name)) {
+            const existing = new Map(labels.map((label) => [label.name, label]))
+            for (const [name, color, description] of required) {
+              const label = existing.get(name)
+              if (!label) {
                 try {
                   await github.rest.issues.createLabel({
                     ...context.repo,
                     name,
                     description,
-                    color: 'ededed',
+                    color,
                   })
                 } catch (error) {
                   if (error.status !== 422) throw error
                   await github.rest.issues.getLabel({ ...context.repo, name })
                 }
+              } else if (label.color.toLowerCase() !== color.toLowerCase()) {
+                await github.rest.issues.updateLabel({
+                  ...context.repo,
+                  name,
+                  color,
+                })
               }
             }
 
