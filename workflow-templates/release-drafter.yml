@@ -1,0 +1,16 @@
+name: Release Drafter
+
+on:
+  push:
+    branches: [ $default-branch ]
+  pull_request:
+    branches: [ $default-branch ]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  release-drafter:
+    uses: a-boring-company/.github/.github/workflows/release-drafter.yml@main
