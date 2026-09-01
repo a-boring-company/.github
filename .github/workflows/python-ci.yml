@@ -1,0 +1,178 @@
+name: Python CI
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory used for Ruff, Pyrefly, and pytest commands.
+        required: false
+        type: string
+        default: .
+      ruff-command:
+        description: Ruff validation command(s).
+        required: true
+        type: string
+      pyrefly-command:
+        description: Pyrefly validation command.
+        required: true
+        type: string
+      pytest-command:
+        description: Pytest validation command.
+        required: true
+        type: string
+      path-filters:
+        description: Optional newline-separated Bash patterns that gate heavy validation for pull requests.
+        required: false
+        type: string
+        default: ''
+      install-zsh:
+        description: Install Zsh before repository setup.
+        required: false
+        type: boolean
+        default: false
+      node-version:
+        description: Optional explicit Node version.
+        required: false
+        type: string
+        default: ''
+      node-version-file:
+        description: Optional caller-repository Node version file.
+        required: false
+        type: string
+        default: ''
+      qmd-version:
+        description: Optional pinned QMD version to install.
+        required: false
+        type: string
+        default: ''
+      artifact-name:
+        description: Optional artifact bundle name.
+        required: false
+        type: string
+        default: artifact
+      artifact-paths:
+        description: Optional newline-separated artifact paths relative to the caller repository root.
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Decide validation scope
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PATH_FILTERS: ${{ inputs.path-filters }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$EVENT_NAME" != "pull_request" || -z "$PATH_FILTERS" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! changed_file_count="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+              --jq '.changed_files'
+          )"; then
+            echo "Failed to determine pull-request changed-file count." >&2
+            exit 1
+          fi
+
+          if [[ ! "$changed_file_count" =~ ^[0-9]+$ ]]; then
+            echo "Invalid pull-request changed-file count: $changed_file_count" >&2
+            exit 1
+          fi
+
+          if (( changed_file_count > 3000 )); then
+            echo "Pull request changes more than 3000 files; running full validation because the files API is truncated." >&2
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! changed_files="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+              --jq '.[] | .filename, (.previous_filename // empty)'
+          )"; then
+            echo "Failed to determine pull-request file changes." >&2
+            exit 1
+          fi
+
+          run=false
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            while IFS= read -r pattern; do
+              [[ -z "$pattern" ]] && continue
+              if [[ "$file" == $pattern ]]; then
+                run=true
+                break 2
+              fi
+            done <<< "$PATH_FILTERS"
+          done <<< "$changed_files"
+
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - name: Install Zsh
+        if: ${{ steps.scope.outputs.run == 'true' && inputs.install-zsh }}
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends zsh
+
+      - name: Set up Python environment
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        uses: ./.github/actions/setup-python-env
+
+      - name: Set up Node from version file
+        if: ${{ steps.scope.outputs.run == 'true' && inputs.node-version-file != '' }}
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+
+      - name: Set up explicit Node version
+        if: ${{ steps.scope.outputs.run == 'true' && inputs.node-version-file == '' && inputs.node-version != '' }}
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install pinned QMD
+        if: ${{ steps.scope.outputs.run == 'true' && inputs.qmd-version != '' }}
+        env:
+          QMD_VERSION: ${{ inputs.qmd-version }}
+        run: |
+          npm install --global "@tobilu/qmd@${QMD_VERSION}"
+          test "$(qmd --version | awk 'NR == 1 {print $2; exit}')" = "$QMD_VERSION"
+
+      - name: Ruff
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.ruff-command }}
+
+      - name: Pyrefly
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pyrefly-command }}
+
+      - name: Pytest
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.pytest-command }}
+
+      - name: Upload validation artifacts
+        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' && inputs.artifact-paths != '' }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact-paths }}
+          if-no-files-found: warn
