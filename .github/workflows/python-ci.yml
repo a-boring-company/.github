@@ -83,6 +83,26 @@ jobs:
             exit 0
           fi
 
+          if ! changed_file_count="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+              --jq '.changed_files'
+          )"; then
+            echo "Failed to determine pull-request changed-file count." >&2
+            exit 1
+          fi
+
+          if [[ ! "$changed_file_count" =~ ^[0-9]+$ ]]; then
+            echo "Invalid pull-request changed-file count: $changed_file_count" >&2
+            exit 1
+          fi
+
+          if (( changed_file_count > 3000 )); then
+            echo "Pull request changes more than 3000 files; running full validation because the files API is truncated." >&2
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if ! changed_files="$(
             gh api --paginate \
               "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
