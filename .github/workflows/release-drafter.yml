@@ -17,7 +17,6 @@ jobs:
         with:
           script: |
             const required = [
-              ['patch-bump', '2DA44E', 'Release: patch version bump'],
               ['minor-bump', '0969DA', 'Release: minor version bump'],
               ['major-bump', 'CF222E', 'Release: major version bump'],
             ]
@@ -68,8 +67,6 @@ jobs:
                 label: minor-bump
             - type: version-resolver
               semver-increment: patch
-              when:
-                label: patch-bump
 
           change-template: '- $TITLE (#$NUMBER) $AUTHORS'
           change-title-escapes: '\<*_&'
