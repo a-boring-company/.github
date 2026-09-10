@@ -8,6 +8,10 @@ on:
         required: false
         type: string
         default: .
+      runner:
+        description: GitHub-hosted runner label; callers must choose explicitly.
+        required: true
+        type: string
       ruff-command:
         description: Ruff validation command(s).
         required: true
@@ -63,7 +67,7 @@ permissions:
 jobs:
   validate:
     name: validate
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     steps:
       - name: Checkout
